@@ -85,29 +85,17 @@ Mandatory repository content per spec Appendix E rule 50. Grouped by stage; see 
 - [x] Final measured win rates (25-30 game samples): Cop vs `GreedyBrain` Thief ~88%, Cop vs `RandomBrain` Thief ~85-87%, Thief vs `GreedyBrain` Cop ~64%, Thief vs `RandomBrain` Cop ~96%.
 - [x] 196 tests, 195 passing, 1 skipped, full suite ~3.3 minutes.
 
+## Full-search barrier evaluation ✅
+- [x] Replaced `MinimaxBrain`'s barrier decision -- previously gated behind `HeuristicBrain`'s narrow, single-candidate `_best_barrier_option` heuristic (only offers a cell that is both reachable from the Cop AND one of the target's own escape routes, in a [2,3] distance window) -- with a full search evaluation of all four legal placements (the Cop's orthogonal neighbors), each scored via `search.score_barrier` and compared directly against the best movement option. Real traces showed the old gate leaving 13 barriers completely unused across 25+ turns because no candidate ever satisfied the narrow filter, even in long standoffs where a wider placement would have helped.
+- [x] Re-measured the mirror-match resolution rate (the hardest-possible-opponent stress test from the section above): **80% -> 87%** across the same five starting geometries, with average steps-to-capture dropping to ~12 (previously many mirror-match games took 30+ turns or the full 35 without resolving). No regression against `GreedyBrain`/`RandomBrain` (same ~85-96% range as before, since those weaker opponents rarely reach the close-range standoff where the extra barrier candidates matter).
+- [x] Fixed a real bug the refactor introduced along the way: the new logic passes the chosen barrier target from `_pick_move` to the separately-called `_decide_barrier` via instance state (`_pending_barrier_target`), which must be reset unconditionally at the top of every `_pick_move` call -- an earlier draft only cleared it when a barrier was actually chosen, so a later turn where `STAY` was picked as an ordinary movement value (unrelated to any barrier) could silently reuse a stale target from several turns earlier. Also fixed: the search-timeout fallback path (falls back to `HeuristicBrain._pick_move`) needs to separately stash `HeuristicBrain`'s own barrier choice, since `_decide_barrier` was overridden to only ever read the stashed value.
+- [x] 196 tests, 195 passing, 1 skipped, full suite ~3.75 minutes.
+
 ## Submission checklist (Appendix C Table 6) — do last
-- [x] Two GitHub repos (Cop, Robber), cross-linked READMEs -- local side done: `Final_Project` (Cop, existing `origin`) and a sibling full clone `../Final_Project_AI_Orchestration_Robber` (history preserved, `origin` remote removed pending its own real GitHub remote), each README cross-linking the other by URL. **Still needs the user**: create the actual `Final_Project_AI_Orchestration_Robber` GitHub repo and push both -- I don't have (and shouldn't have) push permission. See the exact commands below.
-- [x] `v1.0-submission` annotated Git tag -- created locally in both repos, pointing at each one's latest commit. **Still needs the user**: `git push origin v1.0-submission` in each repo once its GitHub remote exists.
+- [x] Two GitHub repos (Cop, Robber), cross-linked READMEs -- **pushed for real**: `https://github.com/AhmadKais/Final_Project_AI_Orchestration` (Cop) and `https://github.com/AhmadKais/Final_Project_AI_Orchestration_Robber` (Robber, full history preserved via `git clone`), each README cross-linking the other by URL
+- [x] `v1.0-submission` annotated Git tag -- **pushed for real** to both repos (verified on the Robber remote via `git ls-remote`; the Cop remote is presumably private, so it wasn't independently checkable via the anonymous GitHub API, but the user confirmed the push succeeded)
 - [x] README report components complete in both repos (Sec. 9.4.2) -- items 1-4 and 6 (Dec-POMDP model, FastMCP dilemmas, strategies with real measured evidence, N/A learning curves, companion link) written for real in both READMEs; item 5 (screenshots) still needs a real display, which this environment doesn't have
 - [ ] Belief-map and `Verified OK` replay screenshots attached -- **blocked, needs a real display** (`python3-tk`); `interface/live_gui.py`'s logic is implemented and tested, only the actual screenshot is outstanding
 - [ ] At least 2 matches played against different teams -- **blocked, needs real classmate opponents**; cannot be done solo or simulated
 - [ ] End-of-match email sent by both sides, separately -- depends on those real matches happening first
 - [x] `.gitignore` verified — no secrets committed (`credentials.json`, `token.json`, `tools/ngrok.yml` all confirmed gitignored and untracked via `git status --short --ignored` / `git ls-files`)
-
-### Exact remaining commands (run these yourself — I don't have GitHub push permission)
-
-```bash
-# 1. Create the second GitHub repo (public, or private + shared with the lecturer)
-gh repo create AhmadKais/Final_Project_AI_Orchestration_Robber --public --source=/home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project_AI_Orchestration_Robber --remote=origin
-# (or create it on github.com and: cd ../Final_Project_AI_Orchestration_Robber && git remote add origin <url>)
-
-# 2. Push the Robber repo
-cd /home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project_AI_Orchestration_Robber
-git push -u origin main
-git push origin v1.0-submission
-
-# 3. Push the Cop repo's new commits + tag (existing origin, already set up)
-cd /home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project
-git push origin main
-git push origin v1.0-submission
-```

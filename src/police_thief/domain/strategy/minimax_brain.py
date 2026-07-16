@@ -4,11 +4,20 @@ minimax search (`domain/strategy/search.py`) that looks several moves
 ahead and assumes a worst-case-competent opponent, averaged over the
 belief map's top few candidate cells instead of a single point estimate.
 
-Barrier placement stays on the inherited path-safe heuristic
-(`_best_barrier_option`) -- it already avoids the self-trapping failure
-mode -- but the choice between stepping and walling is now a genuine
-value comparison via `search.score_barrier` rather than an unconditional
-"always wall if a legal spot exists" rule.
+Barrier placement is evaluated by the search itself: every legal
+placement (the Cop's four orthogonal neighbors -- never its own cell, see
+`heuristic_brain.py`'s docstring on why) is scored via `search.score_barrier`
+and compared directly against the best movement option, on equal footing.
+An earlier version gated this behind the narrow, single-candidate
+`_best_barrier_option` heuristic (only offers a cell that happens to be
+both reachable AND one of the target's own escape routes, in a [2,3]
+distance window) -- real traces showed the Cop going 25+ turns with 13
+unused barriers because no candidate ever satisfied that narrow filter,
+even when a wider placement would have measurably tightened the Robber's
+reachable area. The search's own multi-ply worst-case lookahead already
+penalizes a self-trapping placement on its own (a stranded Cop shows worse
+continuation values), so no separate hand-coded self-trap check is needed
+here the way `HeuristicBrain._best_barrier_option` still needs one.
 
 Tie-breaking among near-equal moves is randomized per instance (see
 `_TIE_BREAK_JITTER`): two byte-identical copies of this brain facing each
@@ -69,8 +78,16 @@ class MinimaxBrain(HeuristicBrain):
     def __init__(self, role: str, rng: random.Random | None = None):
         super().__init__(role)
         self._rng = rng or random.Random()
+        # Sends this turn's barrier target (if any) from _pick_move to the
+        # separate _decide_barrier call PeerRuntime makes right after, when
+        # (and only when) _pick_move returns STAY. Reset unconditionally at
+        # the top of every _pick_move call (see below) -- never left stale
+        # from a previous turn, including turns where STAY was chosen as an
+        # ordinary movement value rather than for a barrier at all.
+        self._pending_barrier_target: Coord | None = None
 
     def _pick_move(self, board: Board, own_pos: Coord, belief: BeliefMap) -> Move:
+        self._pending_barrier_target = None
         # Exclude both the mover's own cell AND every barriered cell: both
         # are physically impossible current-opponent-position hypotheses
         # (see BeliefMap.arg_max's docstring). The barrier case is the more
@@ -89,19 +106,43 @@ class MinimaxBrain(HeuristicBrain):
             # always-fast, always-legal greedy parent rather than delay
             # this turn's commit and risk the OPPONENT's own response
             # timeout, which starts counting from when our commit arrives.
-            return super()._pick_move(board, own_pos, belief)
+            # If that fallback wants to barrier, stash ITS target too --
+            # _decide_barrier below only ever reads _pending_barrier_target,
+            # so a fallback STAY with nothing stashed would silently drop
+            # the barrier instead of placing the one HeuristicBrain chose.
+            fallback_move = super()._pick_move(board, own_pos, belief)
+            if fallback_move == Move.STAY:
+                self._pending_barrier_target = super()._decide_barrier(board, own_pos, belief)
+            return fallback_move
         jittered = {move: value + self._rng.uniform(-_TIE_BREAK_JITTER, _TIE_BREAK_JITTER) for move, value in scored.items()}
         best = max(jittered, key=jittered.get)
 
         if self.role == "police":
-            barrier_target = self._best_barrier_option(board, own_pos, belief)
-            if barrier_target is not None:
-                barrier_value = search.score_barrier(
-                    board, own_pos, barrier_target, candidates, depth=_SEARCH_DEPTH, deadline=deadline
-                )
-                # Compared against the UNjittered move score -- move-vs-
-                # barrier is a real value decision, not a near-tie to nudge.
-                if barrier_value is not None and barrier_value >= scored[best]:
-                    return Move.STAY
+            best_barrier_value, best_barrier_target = None, None
+            for target in self._legal_barrier_candidates(board, own_pos):
+                value = search.score_barrier(board, own_pos, target, candidates, depth=_SEARCH_DEPTH, deadline=deadline)
+                if value is not None and (best_barrier_value is None or value > best_barrier_value):
+                    best_barrier_value, best_barrier_target = value, target
+            # Compared against the UNjittered move score -- move-vs-barrier
+            # is a real value decision, not a near-tie to nudge.
+            if best_barrier_target is not None and best_barrier_value >= scored[best]:
+                self._pending_barrier_target = best_barrier_target
+                return Move.STAY
 
         return best
+
+    @staticmethod
+    def _legal_barrier_candidates(board: Board, cop_pos: Coord) -> list[Coord]:
+        if len(board.barriers) >= board.max_barriers:
+            return []
+        return [
+            cell
+            for cell in (
+                (cop_pos[0] - 1, cop_pos[1]), (cop_pos[0] + 1, cop_pos[1]),
+                (cop_pos[0], cop_pos[1] - 1), (cop_pos[0], cop_pos[1] + 1),
+            )
+            if board.in_bounds(cell) and cell not in board.barriers
+        ]
+
+    def _decide_barrier(self, board: Board, cop_pos: Coord, belief: BeliefMap) -> Coord | None:
+        return self._pending_barrier_target
