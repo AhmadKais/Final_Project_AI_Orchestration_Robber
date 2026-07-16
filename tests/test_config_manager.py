@@ -7,6 +7,7 @@ import pytest
 
 from police_thief.shared.config_manager import (
     config_sha256,
+    derive_game_id,
     load_game_config,
     load_private_config,
     load_shared_config,
@@ -81,3 +82,23 @@ def test_load_game_config_shared_overrides_conflicting_private_key(tmp_path):
     game_config = load_game_config("thief", config_root)
 
     assert game_config["movement_and_barriers"]["max_moves"] == 35  # signed value wins
+
+
+# -- derive_game_id: both peers compute the identical id, zero extra round-trips --
+
+def test_derive_game_id_is_order_independent_in_agreed_between():
+    a = {"agreed_between": ["group-a", "group-b"], "x": 1}
+    b = {"agreed_between": ["group-b", "group-a"], "x": 1}
+    assert derive_game_id(a) == derive_game_id(b)  # sorted -- doesn't matter who's "first"
+
+
+def test_derive_game_id_changes_with_config_content():
+    a = {"agreed_between": ["group-a", "group-b"], "x": 1}
+    b = {"agreed_between": ["group-a", "group-b"], "x": 2}
+    assert derive_game_id(a) != derive_game_id(b)
+
+
+def test_derive_game_id_changes_with_different_team_pair():
+    a = {"agreed_between": ["group-a", "group-b"], "x": 1}
+    b = {"agreed_between": ["group-a", "group-c"], "x": 1}
+    assert derive_game_id(a) != derive_game_id(b)

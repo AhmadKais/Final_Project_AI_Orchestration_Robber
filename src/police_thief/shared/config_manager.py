@@ -55,6 +55,25 @@ def config_sha256(shared: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def derive_game_id(shared: dict[str, Any]) -> str:
+    """A `game_id` both peers can compute identically with zero extra
+    negotiation round-trips (Sec. 9.3: the four per-series JSON artifacts
+    -- declaration/config/log/results -- all share one `game_id`). Built
+    from data both sides already hold identically before the first
+    sub-game starts: the pre-agreed team pair (`agreed_between`, already
+    in the signed shared config) and the shared config's own hash.
+
+    `agreed_between` is sorted before hashing, not just for the display
+    prefix: `config_sha256`'s `sort_keys=True` only normalizes DICT key
+    order, not LIST element order, so two configs whose `agreed_between`
+    lists happen to be written in a different order would otherwise hash
+    to two different game IDs even though they represent the exact same
+    agreed match between the exact same two teams."""
+    normalized = {**shared, "agreed_between": sorted(shared.get("agreed_between", []))}
+    groups = "-".join(normalized["agreed_between"])
+    return f"{groups}_{config_sha256(normalized)[:8]}"
+
+
 def load_game_config(role: Role, config_root: Path) -> GameConfig:
     """Convenience entry point: load + merge + return a GameConfig for `role`."""
     shared = load_shared_config(config_root / "game.json")

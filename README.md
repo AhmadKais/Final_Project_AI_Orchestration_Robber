@@ -8,7 +8,7 @@ Per spec Sec. 9.4: both repositories hold the identical full codebase (the archi
 
 Full translated specification: [`police_thief_p2p_EN.md`](police_thief_p2p_EN.md) (translated from the original Hebrew, [`police_thief_p2p.pdf`](police_thief_p2p.pdf)).
 
-**Status: playable end-to-end, and verified over the real public internet and real Gmail.** All 8 development stages (`docs/PLAN.md`) are implemented and tested, plus all four LLM providers, Step-0 hardware-declaration exchange, and a real background-thread Watchdog. Tunneling (Stage 5) and Gmail OAuth (Appendix A) are both genuinely done, not just coded: the user created real ngrok and Google Cloud accounts, and both were verified with live traffic, not just configuration -- a real move round-tripped through an actual public `*.ngrok-free.app` tunnel back to this project's own FastMCP server (`docs/TUNNELING.md`), and a real email (real Gmail message ID, with a sample report attached) was sent through the real Gmail API, with the refresh token confirmed working for unattended reuse (`docs/GMAIL_SETUP.md`). The only piece left anywhere is running an actual opponent on a second machine for real league play -- a hardware/logistics requirement no amount of local setup can substitute for. Two `Orchestrator`s can play a complete, cryptographically-verified game against each other right now (proven by `tests/test_orchestrator_integration.py`, and by `scripts/generate_sample_reports.py`'s real generated match in `docs/sample_reports/`); real network deployment (`simulation_sdk.run_peer`) uses the identical code path, just pointed at a real opponent URL instead of an in-process one. 182 tests, 181 passing, 1 skipped (no display/`tkinter` in the dev sandbox this was built in). Beyond wiring, `HeuristicBrain` now also places barriers tactically (Cop, never self-trapping -- see `docs/STRATEGY.md`) and the belief map decays toward uniform each turn so a stale high-confidence guess can't get permanently stuck.
+**Status: playable end-to-end, including the real 6-game league series format, and verified over the real public internet and real Gmail.** All 8 development stages (`docs/PLAN.md`) are implemented and tested, plus all four LLM providers, Step-0 hardware-declaration exchange, a real background-thread Watchdog, a belief-space minimax search strategy (`MinimaxBrain`, the default), and full `network_and_league.num_games`-series orchestration with role alternation and cumulative scoring (Appendix F Table 18 -- see "Running" below). Tunneling (Stage 5) and Gmail OAuth (Appendix A) are both genuinely done, not just coded: the user created real ngrok and Google Cloud accounts, and both were verified with live traffic, not just configuration -- a real move round-tripped through an actual public `*.ngrok-free.app` tunnel back to this project's own FastMCP server (`docs/TUNNELING.md`), and a real email (real Gmail message ID, with a sample report attached) was sent through the real Gmail API, with the refresh token confirmed working for unattended reuse (`docs/GMAIL_SETUP.md`). The only piece left anywhere is running an actual opponent on a second machine for real league play -- a hardware/logistics requirement no amount of local setup can substitute for. Two `Orchestrator`s (or two `SeriesRunner`s, for a full series) can play a complete, cryptographically-verified game against each other right now (proven by `tests/test_orchestrator_integration.py` and `tests/test_series_runner.py`, and by `scripts/generate_sample_reports.py`'s real generated match in `docs/sample_reports/`); real network deployment (`simulation_sdk.run_peer`/`run_peer_series`) uses the identical code path, just pointed at a real opponent URL instead of an in-process one. 211 tests, 210 passing, 1 skipped (no display/`tkinter` in the dev sandbox this was built in).
 
 ## Architecture
 
@@ -44,16 +44,26 @@ uv sync
 ## Running
 
 ```bash
+# One game:
 # Terminal 1
 uv run python -m police_thief peer --role police
 # Terminal 2
 uv run python -m police_thief peer --role thief
+
+# The real league format instead -- a full network_and_league.num_games
+# series against the same opponent (Appendix F Table 18: 6, Fixed),
+# alternating this peer's effective role each sub-game, with cumulative
+# scoring and a combined results file at the end:
+uv run python -m police_thief peer --role police --series
+uv run python -m police_thief peer --role thief --series
 
 # Replay and cryptographically verify a saved match:
 uv run python -m police_thief replay --log logs/police_match.json
 ```
 
 Both peers need real, reachable `opponent_url`s in their `config/<role>/game.toml` -- `localhost` ports for same-machine testing, or public tunnel URLs for real league play (`docs/TUNNELING.md`).
+
+**Multi-game series** (`--series`): each sub-game writes its own log (`logs/log_<game_id>_g<NN>.json`); the series ends with one `logs/result_<game_id>.json` summarizing every sub-game's outcome plus the cumulative score and winner (Sec. 9.3's [results file]). `game_id` is computed identically by both sides with no extra negotiation step, from data already in the signed shared config (the agreed team pair + the config's own hash) -- see `shared/config_manager.derive_game_id`. Known gap: the [Declaration File] and per-sub-game [Configuration File] aren't written by `--series` yet, since they need real team-member IDs and repo URLs that only you can supply -- `scripts/generate_sample_reports.py` shows the exact logic to adapt (`docs/TODO.md` has the full note).
 
 ## Development order
 
@@ -65,7 +75,7 @@ Built in the eight layered stages defined in [`docs/PLAN.md`](docs/PLAN.md) / [`
 uv run pytest
 ```
 
-181 of 182 tests pass; the one skip is `test_live_gui.py`'s Tkinter widget-construction test, which needs a real display and `python3-tk` (not present in the sandbox this was built in — the pure heatmap/banner logic it depends on is fully tested). The centerpiece is `tests/test_orchestrator_integration.py`: two `Orchestrator`s, wired to each other's in-process FastMCP servers, play a complete game and produce a log that cryptographically re-verifies end to end.
+210 of 211 tests pass; the one skip is `test_live_gui.py`'s Tkinter widget-construction test, which needs a real display and `python3-tk` (not present in the sandbox this was built in — the pure heatmap/banner logic it depends on is fully tested). The centerpiece is `tests/test_orchestrator_integration.py`: two `Orchestrator`s, wired to each other's in-process FastMCP servers, play a complete game and produce a log that cryptographically re-verifies end to end. `tests/test_series_runner.py` does the same for a full multi-sub-game series (below).
 
 ---
 
