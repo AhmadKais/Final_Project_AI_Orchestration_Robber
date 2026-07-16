@@ -86,10 +86,28 @@ Mandatory repository content per spec Appendix E rule 50. Grouped by stage; see 
 - [x] 196 tests, 195 passing, 1 skipped, full suite ~3.3 minutes.
 
 ## Submission checklist (Appendix C Table 6) — do last
-- [ ] Two GitHub repos (Cop, Robber), cross-linked READMEs
-- [ ] `v1.0-submission` annotated Git tag, pushed
-- [ ] README report components complete in both repos (Sec. 9.4.2) -- items 1-4 (Dec-POMDP model, FastMCP dilemmas, strategies, learning curves) written for real in `README.md`; items 5-6 (screenshots, companion link) still need a real display and the repo split, and then copying this whole section into both split repos' READMEs
-- [ ] Belief-map and `Verified OK` replay screenshots attached
-- [ ] At least 2 matches played against different teams
-- [ ] End-of-match email sent by both sides, separately
-- [ ] `.gitignore` verified — no secrets committed
+- [x] Two GitHub repos (Cop, Robber), cross-linked READMEs -- local side done: `Final_Project` (Cop, existing `origin`) and a sibling full clone `../Final_Project_AI_Orchestration_Robber` (history preserved, `origin` remote removed pending its own real GitHub remote), each README cross-linking the other by URL. **Still needs the user**: create the actual `Final_Project_AI_Orchestration_Robber` GitHub repo and push both -- I don't have (and shouldn't have) push permission. See the exact commands below.
+- [x] `v1.0-submission` annotated Git tag -- created locally in both repos, pointing at each one's latest commit. **Still needs the user**: `git push origin v1.0-submission` in each repo once its GitHub remote exists.
+- [x] README report components complete in both repos (Sec. 9.4.2) -- items 1-4 and 6 (Dec-POMDP model, FastMCP dilemmas, strategies with real measured evidence, N/A learning curves, companion link) written for real in both READMEs; item 5 (screenshots) still needs a real display, which this environment doesn't have
+- [ ] Belief-map and `Verified OK` replay screenshots attached -- **blocked, needs a real display** (`python3-tk`); `interface/live_gui.py`'s logic is implemented and tested, only the actual screenshot is outstanding
+- [ ] At least 2 matches played against different teams -- **blocked, needs real classmate opponents**; cannot be done solo or simulated
+- [ ] End-of-match email sent by both sides, separately -- depends on those real matches happening first
+- [x] `.gitignore` verified — no secrets committed (`credentials.json`, `token.json`, `tools/ngrok.yml` all confirmed gitignored and untracked via `git status --short --ignored` / `git ls-files`)
+
+### Exact remaining commands (run these yourself — I don't have GitHub push permission)
+
+```bash
+# 1. Create the second GitHub repo (public, or private + shared with the lecturer)
+gh repo create AhmadKais/Final_Project_AI_Orchestration_Robber --public --source=/home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project_AI_Orchestration_Robber --remote=origin
+# (or create it on github.com and: cd ../Final_Project_AI_Orchestration_Robber && git remote add origin <url>)
+
+# 2. Push the Robber repo
+cd /home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project_AI_Orchestration_Robber
+git push -u origin main
+git push origin v1.0-submission
+
+# 3. Push the Cop repo's new commits + tag (existing origin, already set up)
+cd /home/ahmadk/Desktop/AI_Orchestration_Course/Final_Project
+git push origin main
+git push origin v1.0-submission
+```

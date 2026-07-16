@@ -1,6 +1,10 @@
-# Distributed Cops-and-Robbers over a Peer-to-Peer Network
+# Distributed Cops-and-Robbers over a Peer-to-Peer Network — Robber repository
+
+**Companion repository (Cop): https://github.com/AhmadKais/Final_Project_AI_Orchestration**
 
 Course final project for *Orchestration of AI Agents*, University of Haifa. Two symmetric autonomous agents — **Cop** and **Robber** — chase each other on a grid board with no central server: partial observability is modeled as a Dec-POMDP, location belief comes from a decaying scent-trail (stigmergy) mechanism cross-referenced against (possibly false) verbal hints, and fairness with no referee is enforced by a Commit-Reveal cryptographic protocol over SHA-256.
+
+Per spec Sec. 9.4: both repositories hold the identical full codebase (the architecture is symmetric -- one binary, `--role police`/`--role thief` at the command line selects behavior) submitted as two separately-hosted, cross-linked repositories, matching how the two agents run as two genuinely separate processes/machines during real play.
 
 Full translated specification: [`police_thief_p2p_EN.md`](police_thief_p2p_EN.md) (translated from the original Hebrew, [`police_thief_p2p.pdf`](police_thief_p2p.pdf)).
 
@@ -67,7 +71,7 @@ uv run pytest
 
 ## Academic report (spec Sec. 9.4.2)
 
-Mandatory content for the README of **each** of the two eventual submission repositories (Cop and Robber, cross-linked). Items 1-4 are written for real below; items 5-6 need artifacts this environment can't produce (a display, and the actual second repo).
+Mandatory content for the README of **each** of the two submission repositories (Cop and Robber, cross-linked). Items 1-4 and 6 are written for real below; item 5 needs a real display, which this environment doesn't have.
 
 ### 1. The chosen Dec-POMDP model
 
@@ -106,6 +110,6 @@ N/A — no reinforcement learning was used (see above). A team adding a Q-Learni
 
 Belief-map heatmap (Live GUI) and `Verified OK` (Replay App) screenshots need a real display and `python3-tk`, neither present in the sandbox this was built in. `interface/live_gui.py`'s rendering logic is implemented and its pure color/banner computation is tested (`tests/test_live_gui.py`); only the actual widget screenshot is outstanding.
 
-### 6. Companion repository link — still needed
+### 6. Companion repository link
 
-Depends on the eventual Cop/Robber repo split (submission checklist in `docs/TODO.md`, explicitly "do last" — a structural decision for you to make, not something to do speculatively ahead of it).
+This is the **Robber** repository. Cop (identical codebase, separately hosted): **https://github.com/AhmadKais/Final_Project_AI_Orchestration**
