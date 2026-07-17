@@ -59,8 +59,19 @@ uv run python -m police_thief peer --role thief   # while you run --role police
 | ngrok account created, authtoken configured and validated | Nothing -- done |
 | A real move round-tripped through an actual public ngrok tunnel | Nothing -- done |
 | Timeout handling on a slow/unresponsive opponent | Nothing -- done |
+| **A full real game (Step-0, Commit-Reveal, capture, everything) between two genuinely separate OS processes over real localhost sockets** | Nothing -- done (see below) |
 | NAT traversal across two genuinely different networks | Run a peer on an actual second machine and exchange tunnel URLs (steps 2-5 above) -- this is the one piece that needs a second physical machine, which no amount of setup on this one can substitute for |
+
+## A real bug this found (fixed)
+
+The single-tool round-trip above (Stage 2 era) doesn't exercise real ASGI server startup timing -- it's one call after the server is already confirmed up. Running two full, separate `police_thief peer` processes against each other (exactly how a real match starts: both sides launched around the same time) found something the 214-test in-process suite never could, because in-process tests never go through real socket/ASGI startup at all:
+
+**The first connection attempt routinely failed** with `RuntimeError: FastMCP's StreamableHTTPSessionManager task group was not initialized`. FastMCP's own "Uvicorn running" log line prints *before* its session manager finishes initializing, so an opponent that starts at the same moment (the normal case) reliably loses that race on its very first request -- and `OpponentClient` had zero retry logic, so this crashed the whole peer process outright. This wasn't a rare edge case; it reproduced on essentially every run.
+
+Fixed in `infra/mcp_client.py`: `OpponentClient._call` now retries a connection-level failure (not a tool-level timeout, which still fails fast as before) until `response_timeout_sec` elapses, instead of raising on the first attempt. Verified twice: `tests/test_mcp_infra.py`'s two new tests (retry-then-succeed, retry-then-bounded-timeout), and by re-running the exact two-process scenario that found the bug -- it now completes a full real game (`Game over: capture` on both sides, 300+ real HTTP requests exchanged) instead of crashing before the first move.
+
+One cosmetic-only issue remains, not gameplay-affecting: a harmless `RuntimeError` can print in a peer's log during its own shutdown, if the opponent's final session-termination request arrives while this side is already tearing its server down. Confirmed this happens strictly *after* the game already completed successfully (`Game over: ...` had already printed) -- it doesn't touch the outcome, the score, or any written artifact, just looks alarming in the log if you're watching it live.
 
 ## Status
 
-The tunneling *infrastructure* is fully working and verified end-to-end: ngrok is authenticated, and a real request round-tripped through a real public tunnel back to this project's own server. What's left is exclusively the multi-machine step (5) -- proving NAT traversal needs an actual second computer on a different network, which is a hardware/logistics requirement, not a setup step.
+The tunneling *infrastructure* is fully working and verified end-to-end: ngrok is authenticated, and a real request round-tripped through a real public tunnel back to this project's own server. The full current protocol (not just Stage 2's single tool) is now verified working between two real, separate processes over real sockets, including finding and fixing a genuine startup-race bug that would otherwise have hit almost every real match on the very first connection. What's left is exclusively the multi-machine step (5) -- proving NAT traversal needs an actual second computer on a different network, which is a hardware/logistics requirement, not a setup step.

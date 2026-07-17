@@ -6,6 +6,7 @@ that a real network connection would use.
 """
 
 import asyncio
+import socket
 
 import pytest
 
@@ -17,6 +18,12 @@ def make_server():
     mailbox = MoveMailbox()
     mcp = build_server("test-peer", mailbox)
     return mcp, mailbox
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 async def test_move_sent_by_one_agent_is_received_by_the_other():
@@ -103,3 +110,41 @@ async def test_slow_opponent_raises_timeout_not_a_hang():
 
     with pytest.raises(TimeoutError):
         await client.send_move(role="police", move="N", step=1)
+
+
+async def test_connection_refused_retries_until_the_opponent_starts_listening():
+    """A live two-real-process test (both peers starting at once, exactly
+    how a real match begins) found this isn't hypothetical: FastMCP's own
+    "Uvicorn running" log line prints before its session manager finishes
+    initializing, so an opponent that starts at the same moment routinely
+    fails its very first connection attempt. The client must retry through
+    that window instead of crashing the whole peer on the first try."""
+    port = _free_port()
+    client = OpponentClient(f"http://127.0.0.1:{port}/mcp", response_timeout_sec=5)
+    mailbox = MoveMailbox()
+    mcp = build_server("late-peer", mailbox)
+
+    async def start_server_late():
+        await asyncio.sleep(0.6)  # the client's first few attempts must hit connection-refused
+        await mcp.run_async(transport="http", host="127.0.0.1", port=port, show_banner=False)
+
+    server_task = asyncio.create_task(start_server_late())
+    try:
+        response = await client.send_move(role="police", move="N", step=1)
+        assert response == {"accepted": True, "role": "police", "move": "N", "step": 1}
+    finally:
+        server_task.cancel()
+
+
+async def test_nothing_ever_listening_times_out_bounded_not_a_hang():
+    """The retry loop still has to give up eventually -- an opponent that
+    genuinely never comes up must fail within response_timeout_sec, not
+    retry forever."""
+    port = _free_port()  # guaranteed nothing is listening here
+    client = OpponentClient(f"http://127.0.0.1:{port}/mcp", response_timeout_sec=1)
+
+    start = asyncio.get_event_loop().time()
+    with pytest.raises(TimeoutError):
+        await client.send_move(role="police", move="N", step=1)
+    elapsed = asyncio.get_event_loop().time() - start
+    assert elapsed < 3  # bounded -- generous margin over the 1s budget, not an exact race

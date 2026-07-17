@@ -10,6 +10,9 @@ over the same transport.
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from fastmcp import Client
 from fastmcp.exceptions import McpError
 
@@ -17,6 +20,7 @@ from police_thief.domain.board import Move
 
 # MCP error code FastMCP raises when a call_tool() deadline is exceeded.
 _TIMEOUT_ERROR_CODE = 408
+_CONNECT_RETRY_INTERVAL_SEC = 0.5
 
 
 class OpponentClient:
@@ -34,20 +38,47 @@ class OpponentClient:
 
     async def _call(self, tool_name: str, arguments: dict) -> dict:
         """Shared call path: every send_* method routes through here so the
-        timeout-to-TimeoutError translation (Sec. 8.4.1) lives in one place."""
-        async with Client(self.opponent_url) as client:
+        timeout-to-TimeoutError translation (Sec. 8.4.1) lives in one place.
+
+        Retries a CONNECTION failure (not a tool-level McpError -- a real
+        socket/HTTP-transport error, e.g. the opponent's server accepted
+        the TCP connection but its own async lifespan hadn't finished
+        initializing yet) until `response_timeout_sec` elapses, instead of
+        raising on the first attempt. This isn't a hypothetical: a live
+        two-real-process test (both peers starting at once, exactly how a
+        real match begins) hit this every time -- FastMCP's own
+        "Uvicorn running" log line prints before its StreamableHTTP
+        session manager's task group finishes initializing, so the very
+        first connection attempt from an opponent that started at the same
+        moment routinely loses that race. In-process tests never exercise
+        this at all (no real ASGI startup sequence), which is exactly why
+        211+ passing tests never caught it."""
+        deadline = time.monotonic() + self.response_timeout_sec
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
             try:
-                result = await client.call_tool(
-                    tool_name, arguments, timeout=self.response_timeout_sec,
-                )
-            except McpError as exc:
-                if exc.error.code == _TIMEOUT_ERROR_CODE:
-                    raise TimeoutError(
-                        f"{tool_name} to {self.opponent_url!r} timed out "
-                        f"after {self.response_timeout_sec}s"
-                    ) from exc
-                raise
-            return result.data
+                async with Client(self.opponent_url) as client:
+                    try:
+                        result = await client.call_tool(
+                            tool_name, arguments, timeout=self.response_timeout_sec,
+                        )
+                    except McpError as exc:
+                        if exc.error.code == _TIMEOUT_ERROR_CODE:
+                            raise TimeoutError(
+                                f"{tool_name} to {self.opponent_url!r} timed out "
+                                f"after {self.response_timeout_sec}s"
+                            ) from exc
+                        raise
+                    return result.data
+            except TimeoutError:
+                raise  # a real response-level timeout is not a connection hiccup -- never retried
+            except Exception as exc:  # noqa: BLE001 -- deliberately broad: any connect-time failure
+                last_error = exc
+                await asyncio.sleep(_CONNECT_RETRY_INTERVAL_SEC)
+        raise TimeoutError(
+            f"Could not connect to {self.opponent_url!r} to call {tool_name} "
+            f"within {self.response_timeout_sec}s"
+        ) from last_error
 
     async def send_step0(self, *, role: str, declaration: dict, signature: str) -> dict:
         return await self._call(
