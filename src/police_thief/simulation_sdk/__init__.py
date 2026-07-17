@@ -16,6 +16,8 @@ from pathlib import Path
 from police_thief.domain.scoring import aggregate_series, effective_role_for_subgame, record_sub_game
 from police_thief.domain.strategy.brain_base import BrainBase
 from police_thief.domain.strategy.minimax_brain import MinimaxBrain
+from police_thief.infra.email_sender import get_service, send_or_draft_report
+from police_thief.infra.gatekeeper import build_gatekeeper
 from police_thief.infra.llm.base import LLMProvider
 from police_thief.infra.llm.claude_api_provider import ClaudeAPIProvider
 from police_thief.infra.llm.claude_cli_provider import ClaudeCLIProvider
@@ -325,3 +327,57 @@ def run_replay(log_path: Path) -> None:
     """Launch the replay viewer against a saved game log for cryptographic
     re-verification (Sec. 7.4-7.5)."""
     ReplayViewer(log_path).step_through()
+
+
+def find_report_artifacts(log_dir: Path, game_id: str) -> list[Path]:
+    """Locate this series' four mandatory JSON artifacts (Sec. 9.3) that
+    SeriesRunner already wrote to `log_dir`: the declaration (once), every
+    per-sub-game configuration snapshot, every per-sub-game log, and the
+    final results file -- in that reading order. Silently skips any that
+    don't exist yet (e.g. the series is still in progress, or ran as a
+    single game via run_peer rather than run_peer_series)."""
+    candidates = [
+        log_dir / f"declaration_{game_id}.json",
+        *sorted(log_dir.glob(f"config_{game_id}_g*.json")),
+        *sorted(log_dir.glob(f"log_{game_id}_g*.json")),
+        log_dir / f"result_{game_id}.json",
+    ]
+    return [path for path in candidates if path.exists()]
+
+
+def run_report(role: Role, config_root: Path = Path("config"), game_id: str | None = None) -> list[tuple[Path, dict | Path]]:
+    """Email (or, by default, locally draft) every report artifact this
+    role's series has written so far. Reads `[email] recipient`/`mode`
+    from config/<role>/game.toml -- `mode = "send"` performs a real,
+    irreversible Gmail send per artifact, gated through the Gatekeeper
+    built from config/game.json's `rate_limiter_gatekeeper`; any other
+    mode (the default, "draft") writes local .eml previews and never
+    touches the network or needs credentials.json/token.json at all.
+    Returns a list of (artifact_path, outcome) pairs -- outcome is the
+    Gmail API response dict for a real send, or the local .eml Path for a
+    draft."""
+    game_config = load_game_config(role, config_root)
+    values = game_config.values
+    email_cfg = values.get("email", {})
+    to_addr = email_cfg.get("recipient")
+    if not to_addr:
+        raise ValueError(f"config/{role}/game.toml is missing [email] recipient")
+    mode = email_cfg.get("mode", "draft")
+
+    gid = game_id or derive_game_id(values)
+    log_dir = Path("logs")
+    artifacts = find_report_artifacts(log_dir, gid)
+    if not artifacts:
+        raise FileNotFoundError(f"No report artifacts found for game_id={gid!r} in {log_dir}")
+
+    gatekeeper = build_gatekeeper(values["rate_limiter_gatekeeper"])
+    service = get_service() if mode == "send" else None
+
+    results = []
+    for path in artifacts:
+        subject = f"[police_thief] {path.stem} ({gid})"
+        outcome = send_or_draft_report(service, gatekeeper, mode, to_addr, subject, path)
+        verb = "Sent" if mode == "send" else "Drafted locally"
+        print(f"{verb}: {path.name} -> {outcome if isinstance(outcome, Path) else 'sent'}")
+        results.append((path, outcome))
+    return results

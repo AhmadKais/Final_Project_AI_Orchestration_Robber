@@ -2,7 +2,7 @@
 
 import time
 
-from police_thief.infra.gatekeeper import DOSDetector, Gatekeeper, QuotaManager, TokenBucket
+from police_thief.infra.gatekeeper import DOSDetector, Gatekeeper, QuotaManager, TokenBucket, build_gatekeeper
 
 
 # -- QuotaManager -----------------------------------------------------------
@@ -117,3 +117,24 @@ def test_gatekeeper_passes_through_args_and_kwargs():
     )
     result = gk.try_send(lambda a, b, c=None: (a, b, c), 1, 2, c=3)
     assert result == (1, 2, 3)
+
+
+# -- build_gatekeeper (config/game.json's rate_limiter_gatekeeper section) --
+
+def test_build_gatekeeper_uses_queue_depth_as_daily_cap():
+    gk = build_gatekeeper({
+        "requests_per_minute": 30, "concurrent_requests": 2,
+        "retry_backoff_sec": 5, "max_retries": 3, "queue_depth": 2,
+    })
+    assert gk.try_send(lambda: "1") == "1"
+    assert gk.try_send(lambda: "2") == "2"
+    assert gk.try_send(lambda: "3 -- over queue_depth") is None
+
+
+def test_build_gatekeeper_token_bucket_matches_requests_per_minute():
+    gk = build_gatekeeper({
+        "requests_per_minute": 30, "concurrent_requests": 2,
+        "retry_backoff_sec": 5, "max_retries": 3, "queue_depth": 100,
+    })
+    assert gk.bucket.capacity == 30
+    assert gk.bucket.refill_rate == 0.5

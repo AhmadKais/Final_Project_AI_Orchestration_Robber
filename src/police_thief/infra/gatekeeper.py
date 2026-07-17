@@ -90,3 +90,19 @@ class Gatekeeper:
             return None
         self._recent_sends.append(time.monotonic())
         return send_fn(*args, **kwargs)
+
+
+def build_gatekeeper(rate_limiter_config: dict) -> Gatekeeper:
+    """Build a Gatekeeper from config/game.json's `rate_limiter_gatekeeper`
+    section (requests_per_minute, queue_depth; retry_backoff_sec/max_retries
+    govern connection retry elsewhere -- infra/mcp_client.py -- not this
+    gate). That section has no explicit daily cap, so `queue_depth` -- the
+    largest bound the config actually specifies -- doubles as the
+    QuotaManager's safety ceiling; DOSDetector reuses the same per-minute
+    window as a secondary burst breaker alongside the smooth token bucket."""
+    requests_per_minute = rate_limiter_config["requests_per_minute"]
+    return Gatekeeper(
+        quota=QuotaManager(daily_limit=rate_limiter_config["queue_depth"]),
+        bucket=TokenBucket(capacity=requests_per_minute, refill_rate=requests_per_minute / 60.0),
+        dos=DOSDetector(max_sends=requests_per_minute, window_sec=60.0),
+    )
