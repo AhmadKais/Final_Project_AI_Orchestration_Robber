@@ -1,0 +1,50 @@
+{
+  "game_id": "group-a-group-b_44c9c396",
+  "my_total": 80,
+  "opponent_total": 60,
+  "winner": "me",
+  "sub_games": [
+    {
+      "sub_game_number": 1,
+      "my_role": "thief",
+      "outcome": "capture",
+      "my_score": 5,
+      "opponent_score": 20
+    },
+    {
+      "sub_game_number": 2,
+      "my_role": "police",
+      "outcome": "capture",
+      "my_score": 20,
+      "opponent_score": 5
+    },
+    {
+      "sub_game_number": 3,
+      "my_role": "thief",
+      "outcome": "capture",
+      "my_score": 5,
+      "opponent_score": 20
+    },
+    {
+      "sub_game_number": 4,
+      "my_role": "police",
+      "outcome": "capture",
+      "my_score": 20,
+      "opponent_score": 5
+    },
+    {
+      "sub_game_number": 5,
+      "my_role": "thief",
+      "outcome": "survival",
+      "my_score": 10,
+      "opponent_score": 5
+    },
+    {
+      "sub_game_number": 6,
+      "my_role": "police",
+      "outcome": "capture",
+      "my_score": 20,
+      "opponent_score": 5
+    }
+  ]
+}

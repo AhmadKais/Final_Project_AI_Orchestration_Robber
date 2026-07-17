@@ -10,7 +10,7 @@ import asyncio
 import importlib
 import json
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from police_thief.domain.scoring import aggregate_series, effective_role_for_subgame, record_sub_game
@@ -131,16 +131,31 @@ class SeriesRunner:
     github_commit: str
     group_name: str | None
     llm_model: str
+    # Real identity data for the [Declaration File] (Sec. 9.3) beyond what
+    # the game itself already produces (hardware from the real Step-0
+    # exchange, group_name, code_version, github_commit) -- optional
+    # because only the user knows their own team roster and repo URL.
+    # Left empty, the declaration is still written with everything that
+    # doesn't need that data, just with those two fields blank rather than
+    # the file not existing at all.
+    team_members: list[str] = field(default_factory=list)
+    repo_url: str = ""
 
     async def run(self) -> dict:
-        """Play every sub-game in sequence and write the aggregated
-        [results file] (Sec. 9.3: `result_<game_id>.json`, "each team's
-        score in each mini-game and the cumulative result"). Returns the
-        same payload that gets written, for callers that want it directly
-        (e.g. tests) without re-reading the file."""
+        """Play every sub-game in sequence and write all four per-series
+        JSON artifacts (Sec. 9.3): a [Declaration File] once (from
+        sub-game 1's real Step-0 exchange), one [Configuration File] per
+        sub-game (the actual shared config that sub-game ran under), each
+        sub-game's own [Log File] (via Orchestrator, unchanged), and the
+        aggregated [Results File] at the end ("each team's score in each
+        mini-game and the cumulative result"). Returns the results payload
+        for callers that want it directly (e.g. tests) without re-reading
+        the file."""
         num_games = self.values.get("network_and_league", {}).get("num_games", 1)
         strategy_cfg = self.values.get("strategy", {})
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         sub_games = []
+        first_orchestrator: Orchestrator | None = None
         for sub_game_number in range(1, num_games + 1):
             role = effective_role_for_subgame(self.config_natural_role, sub_game_number)
             brain = _build_brain(role, strategy_cfg)
@@ -152,8 +167,13 @@ class SeriesRunner:
                 group_name=self.group_name, llm_model=self.llm_model,
             )
             outcome = await orchestrator.run_game()
+            first_orchestrator = first_orchestrator or orchestrator
             sub_games.append(record_sub_game(sub_game_number, role, outcome, self.values["scoring"]))
+            self._write_config_snapshot(sub_game_number)
             self._drain_stale_messages()
+
+        if first_orchestrator is not None:
+            self._write_declaration(first_orchestrator)
 
         result = aggregate_series(sub_games, tie_score=self.values["scoring"]["tie_score"])
         payload = {
@@ -162,9 +182,43 @@ class SeriesRunner:
             "winner": result.winner,
             "sub_games": [asdict(record) for record in result.sub_games],
         }
-        self.log_dir.mkdir(parents=True, exist_ok=True)
         (self.log_dir / f"result_{self.game_id}.json").write_text(json.dumps(payload, indent=2))
         return payload
+
+    def _write_declaration(self, first_orchestrator: Orchestrator) -> None:
+        """[Declaration File] (Sec. 9.3): constant data for the whole
+        series -- both sides' identity, hardware, and MCP address, fixed
+        with a signature. Hardware comes straight from sub-game 1's real
+        Step-0 exchange (Sec. 5.5), not re-collected here; the exchange
+        already happened as part of run_game()."""
+        opponent_role = "thief" if self.config_natural_role == "police" else "police"
+        declaration = {
+            "game_id": self.game_id,
+            "num_games": self.values.get("network_and_league", {}).get("num_games", 1),
+            "teams": {
+                self.config_natural_role: {
+                    "group_name": self.group_name, "members": self.team_members, "repo": self.repo_url,
+                },
+                opponent_role: {"group_name": None, "members": [], "repo": None},  # opponent fills in their own
+            },
+            "hardware": {
+                self.config_natural_role: asdict(first_orchestrator.own_step0) if first_orchestrator.own_step0 else None,
+                opponent_role: first_orchestrator.opponent_step0,
+            },
+            "token_budget_per_series": self.values.get("network_and_league", {}).get("token_budget_per_series"),
+        }
+        (self.log_dir / f"declaration_{self.game_id}.json").write_text(json.dumps(declaration, indent=2))
+
+    def _write_config_snapshot(self, sub_game_number: int) -> None:
+        """[Configuration File] (Sec. 9.3): a per-sub-game named copy of
+        the actual signed config that sub-game ran under ("every
+        configuration file must be given a different name according to
+        the game, so as to allow easy reconstruction of each game's
+        configuration") -- byte-identical across sub-games here since
+        nothing in `self.values` changes mid-series, but named separately
+        per sub-game as the spec requires regardless."""
+        config_path = self.log_dir / f"config_{self.game_id}_g{sub_game_number:02d}.json"
+        config_path.write_text(json.dumps(self.values, indent=2, default=str))
 
     def _drain_stale_messages(self) -> None:
         """Discard anything left in the mailbox between sub-games -- a
@@ -202,12 +256,19 @@ def build_series(role: Role, config_root: Path = Path("config")) -> tuple[Series
 
     game_cfg = values.get("game", {})
     llm_cfg = values.get("llm", {})
+    # config/<role>/game.toml's [game] section already scaffolds `members`
+    # and `repos = {cop, thief}` (this team's own two repo URLs -- a team
+    # submits both, Sec. 9.4). `repos` keys on the book's Cop/Robber
+    # vocabulary, not this codebase's police/thief Role literal, hence the
+    # lookup below rather than a plain `.get(role)`.
+    repo_key = "cop" if role == "police" else "thief"
 
     runner = SeriesRunner(
         config_natural_role=role, values=values, mailbox=mailbox, mcp_client=mcp_client,
         llm_provider=llm_provider, log_dir=Path("logs"), game_id=derive_game_id(values),
         code_version=__version__, github_commit=_current_git_commit(),
         group_name=game_cfg.get("group_name"), llm_model=llm_cfg.get("model", "unknown"),
+        team_members=game_cfg.get("members", []), repo_url=game_cfg.get("repos", {}).get(repo_key, ""),
     )
     return runner, mcp_server, network_cfg["my_port"]
 

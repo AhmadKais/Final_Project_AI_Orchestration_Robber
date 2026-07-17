@@ -1,0 +1,48 @@
+{
+  "game_id": "group-a-group-b_44c9c396",
+  "num_games": 6,
+  "teams": {
+    "thief": {
+      "group_name": "sample-team-thief",
+      "members": [
+        "id-2001",
+        "id-2002"
+      ],
+      "repo": "https://github.com/example/thief-repo"
+    },
+    "police": {
+      "group_name": null,
+      "members": [],
+      "repo": null
+    }
+  },
+  "hardware": {
+    "thief": {
+      "os_name": "Linux 6.17.0-40-generic",
+      "cpu_cores": 4,
+      "cpu_freq_mhz": 2999.996,
+      "ram_gb": 7.65,
+      "gpu": null,
+      "vram_gb": null,
+      "llm_model": "template",
+      "code_version": "0.1.0",
+      "github_commit": "0000000sample",
+      "group_name": "sample-team-thief",
+      "sub_game_number": 1
+    },
+    "police": {
+      "os_name": "Linux 6.17.0-40-generic",
+      "cpu_cores": 4,
+      "cpu_freq_mhz": 3000.019,
+      "ram_gb": 7.65,
+      "gpu": null,
+      "vram_gb": null,
+      "llm_model": "template",
+      "code_version": "0.1.0",
+      "github_commit": "0000000sample",
+      "group_name": "sample-team-police",
+      "sub_game_number": 1
+    }
+  },
+  "token_budget_per_series": 200000
+}

@@ -2,11 +2,12 @@
 each other (Appendix F Table 18: "Games in a series against one opponent"
 = 6, Fixed), using the same in-process FastMCP transport pattern as
 tests/test_orchestrator_integration.py. Proves role alternation, mutual
-score consistency, and the aggregated results file -- not just that each
-sub-game in isolation still works (that's already covered).
+score consistency, and all four Sec. 9.3 per-series JSON artifacts -- not
+just that each sub-game in isolation still works (that's already covered).
 """
 
 import asyncio
+import json
 import random
 
 import pytest
@@ -122,3 +123,60 @@ async def test_series_of_one_game_behaves_like_a_single_game(tmp_path):
     assert len(result_a["sub_games"]) == 1
     assert result_a["sub_games"][0]["my_role"] == "police"
     assert result_a["winner"] in ("me", "opponent", "tie")
+
+
+# -- the other three Sec. 9.3 artifacts: declaration + per-subgame config --
+
+async def test_series_writes_declaration_with_real_hardware(tmp_path):
+    runner_a, runner_b = make_matched_series(tmp_path, num_games=2)
+
+    await asyncio.gather(runner_a.run(), runner_b.run())
+
+    declaration = json.loads((tmp_path / "a" / "declaration_test-game.json").read_text())
+    assert declaration["game_id"] == "test-game"
+    assert declaration["num_games"] == 2
+    assert declaration["teams"]["police"]["group_name"] == "group-a"
+    # Real Step-0 hardware from sub-game 1's actual exchange, not a placeholder.
+    assert declaration["hardware"]["police"]["cpu_cores"] > 0
+    assert declaration["hardware"]["thief"] is not None
+
+
+async def test_series_writes_one_named_config_snapshot_per_subgame(tmp_path):
+    runner_a, runner_b = make_matched_series(tmp_path, num_games=3)
+
+    await asyncio.gather(runner_a.run(), runner_b.run())
+
+    for n in range(1, 4):
+        config_path = tmp_path / "a" / f"config_test-game_g{n:02d}.json"
+        assert config_path.exists()
+        assert json.loads(config_path.read_text())["board_and_agents"]["grid_size"] == 5
+
+
+async def test_series_declaration_includes_supplied_team_identity(tmp_path):
+    mailbox_a, mailbox_b = MoveMailbox(), MoveMailbox()
+    mcp_a = build_server("peer-a", mailbox_a)
+    mcp_b = build_server("peer-b", mailbox_b)
+    config = make_small_config(num_games=1)
+
+    runner_a = SeriesRunner(
+        config_natural_role="police", values=config, mailbox=mailbox_a,
+        mcp_client=OpponentClient(mcp_b, response_timeout_sec=5),
+        llm_provider=TemplateProvider(rng=random.Random(1)),
+        log_dir=tmp_path / "a", game_id="test-game",
+        code_version="0.0.0-test", github_commit="testcommit",
+        group_name="group-a", llm_model="none",
+        team_members=["id-1001", "id-1002"], repo_url="https://github.com/example/police-repo",
+    )
+    runner_b = SeriesRunner(
+        config_natural_role="thief", values=config, mailbox=mailbox_b,
+        mcp_client=OpponentClient(mcp_a, response_timeout_sec=5),
+        llm_provider=TemplateProvider(rng=random.Random(2)),
+        log_dir=tmp_path / "b", game_id="test-game",
+        code_version="0.0.0-test", github_commit="testcommit",
+        group_name="group-b", llm_model="none",
+    )
+    await asyncio.gather(runner_a.run(), runner_b.run())
+
+    declaration = json.loads((tmp_path / "a" / "declaration_test-game.json").read_text())
+    assert declaration["teams"]["police"]["members"] == ["id-1001", "id-1002"]
+    assert declaration["teams"]["police"]["repo"] == "https://github.com/example/police-repo"
