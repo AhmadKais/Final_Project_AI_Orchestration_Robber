@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [game]
 group_name = "TODO-your-team-name"
-group_id   = "todo-your-team-id"
+group_id   = "ali-ahm1"
 sub_game_number = 1
 members = ["id-1001", "id-1002"]
 repos = { cop = "https://github.com/TODO/cop-repo", thief = "https://github.com/TODO/thief-repo" }
