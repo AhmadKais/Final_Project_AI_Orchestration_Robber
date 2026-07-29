@@ -284,6 +284,13 @@ async def _run_peer_series_async(runner: SeriesRunner, mcp_server, my_port: int)
         result = await runner.run()
         print(f"Series over: {result['winner']} (me {result['my_total']} - opponent {result['opponent_total']})")
     finally:
+        # The opponent's last receive_final_audit call may have queued its
+        # payload (satisfying our await) a moment before its own handler
+        # coroutine gets scheduled again to flush the HTTP response --
+        # cancelling the server immediately would kill that in-flight
+        # response and time out the opponent's client (found by running two
+        # real separate peer processes to a real game-over).
+        await asyncio.sleep(1.0)
         server_task.cancel()
 
 
@@ -308,6 +315,10 @@ async def _run_peer_async(orchestrator: Orchestrator) -> None:
         outcome = await orchestrator.run_game()
         print(f"Game over: {outcome.value}")
     finally:
+        # Same shutdown race as _run_peer_series_async above: give the
+        # opponent's final-audit handler time to flush its response before
+        # this side tears its own server down.
+        await asyncio.sleep(1.0)
         server_task.cancel()
 
 
