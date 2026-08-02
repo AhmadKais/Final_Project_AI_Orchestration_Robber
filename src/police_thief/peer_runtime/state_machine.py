@@ -11,7 +11,7 @@ from __future__ import annotations
 
 class GamePhaseMachine:
     TRANSITIONS = {
-        "WAITING_FOR_OPPONENT": {"COMPUTING_MOVE"},
+        "WAITING_FOR_OPPONENT": {"COMPUTING_MOVE", "TECHNICAL_LOSS"},
         "COMPUTING_MOVE": {"COMMITTING", "TECHNICAL_LOSS"},
         "COMMITTING": {"AWAITING_REVEAL", "TECHNICAL_LOSS"},
         "AWAITING_REVEAL": {"VERIFYING", "TECHNICAL_LOSS"},

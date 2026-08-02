@@ -31,6 +31,18 @@ def test_collect_step0_declaration_defaults_repo_and_league_fields_when_omitted(
     assert declaration.repo_thief == ""
     assert declaration.members == ()
     assert declaration.games_played_so_far == 0
+    assert declaration.config_sha256 == ""
+
+
+def test_collect_step0_declaration_carries_config_sha256():
+    # Rule 11 ("ensure the configuration file is completely identical,
+    # byte-for-byte, on both sides") needs this to actually travel over
+    # Step-0 so each side can compare it against the opponent's.
+    declaration = collect_step0_declaration(
+        code_version="0.1.0", github_commit="deadbeef", group_name="test-team",
+        sub_game_number=1, llm_model="claude-haiku-4-5", config_sha256="abc123",
+    )
+    assert declaration.config_sha256 == "abc123"
 
 
 def test_collect_step0_declaration_carries_repo_links_and_league_state():

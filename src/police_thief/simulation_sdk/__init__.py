@@ -27,7 +27,7 @@ from police_thief.infra.mcp_client import OpponentClient
 from police_thief.infra.mcp_server import MoveMailbox, build_server
 from police_thief.interface.replay_viewer import ReplayViewer
 from police_thief.peer_runtime.orchestrator import Orchestrator
-from police_thief.shared.config_manager import Role, derive_game_id, load_game_config
+from police_thief.shared.config_manager import Role, config_sha256, derive_game_id, load_game_config
 
 _PROVIDERS = {
     "template": TemplateProvider,
@@ -56,6 +56,25 @@ def _build_llm_provider(trash_talk_cfg: dict) -> LLMProvider:
     if provider_name not in _PROVIDERS:
         raise ValueError(f"Unknown trash_talk provider: {provider_name!r}")
     return _PROVIDERS[provider_name]()
+
+
+def _load_signing_key() -> bytes:
+    """Real per-team HMAC key for the Step-0 declaration (Sec. 5.5: "signed
+    using a key supplied in advance") from a local, gitignored .env --
+    `SIGNING_KEY=<random hex>`. Deliberately NOT in config/<role>/game.toml
+    (committed to a public repo): a key the opponent can read provides zero
+    forgery protection. Falls back to the shipped placeholder (its own name
+    says "replace in production") if .env doesn't set one, so a team that
+    hasn't set this up yet still runs -- just without the real protection."""
+    env_path = Path(".env")
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("SIGNING_KEY="):
+                value = line.split("=", 1)[1].strip()
+                if value:
+                    return value.encode("utf-8")
+    return b"local-dev-key-replace-in-production"
 
 
 def _current_git_commit() -> str:
@@ -105,6 +124,8 @@ def build_peer(role: Role, config_root: Path = Path("config")) -> Orchestrator:
         repo_cop=repos_cfg.get("cop", ""), repo_thief=repos_cfg.get("thief", ""),
         members=game_cfg.get("members", []),
         games_played_so_far=game_cfg.get("games_played_so_far", 0),
+        config_sha256=config_sha256(game_config.shared),
+        signing_key=_load_signing_key(),
     )
     # Stashed for run_peer, which alone needs to bind the server; nothing
     # else in Orchestrator's own API depends on these.
@@ -148,6 +169,8 @@ class SeriesRunner:
     repo_cop: str = ""
     repo_thief: str = ""
     games_played_so_far: int = 0
+    config_sha256: str = ""
+    signing_key: bytes = b"local-dev-key-replace-in-production"
 
     async def run(self) -> dict:
         """Play every sub-game in sequence and write all four per-series
@@ -175,6 +198,7 @@ class SeriesRunner:
                 group_name=self.group_name, llm_model=self.llm_model,
                 repo_cop=self.repo_cop, repo_thief=self.repo_thief,
                 members=self.team_members, games_played_so_far=self.games_played_so_far,
+                config_sha256=self.config_sha256, signing_key=self.signing_key,
             )
             outcome = await orchestrator.run_game()
             first_orchestrator = first_orchestrator or orchestrator
@@ -298,6 +322,8 @@ def build_series(role: Role, config_root: Path = Path("config")) -> tuple[Series
         team_members=game_cfg.get("members", []),
         repo_cop=repos_cfg.get("cop", ""), repo_thief=repos_cfg.get("thief", ""),
         games_played_so_far=game_cfg.get("games_played_so_far", 0),
+        config_sha256=config_sha256(game_config.shared),
+        signing_key=_load_signing_key(),
     )
     return runner, mcp_server, network_cfg["my_port"]
 

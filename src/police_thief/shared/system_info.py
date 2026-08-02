@@ -40,6 +40,11 @@ class Step0Declaration:
     repo_thief: str = ""
     members: tuple[str, ...] = ()
     games_played_so_far: int = 0
+    # Hash of the SHARED config.json only (Rule 11: "ensure the
+    # configuration file is completely identical, byte-for-byte, on both
+    # sides") -- exchanged here so each side can refuse to play on a
+    # mismatch, same round-trip as everything else above.
+    config_sha256: str = ""
 
 
 def _cpu_freq_mhz() -> float:
@@ -86,7 +91,8 @@ def collect_step0_declaration(*, code_version: str, github_commit: str,
                                group_name: str, sub_game_number: int,
                                llm_model: str, repo_cop: str = "", repo_thief: str = "",
                                members: tuple[str, ...] | list[str] = (),
-                               games_played_so_far: int = 0) -> Step0Declaration:
+                               games_played_so_far: int = 0,
+                               config_sha256: str = "") -> Step0Declaration:
     """Gather live hardware/software facts for this machine."""
     gpu, vram_gb = _gpu_info()
     return Step0Declaration(
@@ -105,6 +111,7 @@ def collect_step0_declaration(*, code_version: str, github_commit: str,
         repo_thief=repo_thief,
         members=tuple(members),
         games_played_so_far=games_played_so_far,
+        config_sha256=config_sha256,
     )
 
 

@@ -190,6 +190,66 @@ async def test_log_reports_this_games_own_token_delta_not_a_running_total(tmp_pa
     assert log_data["llm_tokens_consumed_this_game"] == 7 * shared_provider.calls
 
 
+async def test_matching_config_hash_plays_normally(tmp_path):
+    # Rule 11's disqualification must never trigger a false positive when
+    # the two sides' shared config genuinely agrees.
+    import asyncio
+
+    police_mailbox, thief_mailbox = MoveMailbox(), MoveMailbox()
+    police_mcp = build_server("police", police_mailbox)
+    thief_mcp = build_server("thief", thief_mailbox)
+    config = make_small_config()
+
+    police = Orchestrator(
+        role="police", brain=HeuristicBrain(role="police"),
+        mcp_client=OpponentClient(thief_mcp, response_timeout_sec=5),
+        mailbox=police_mailbox, llm_provider=TemplateProvider(rng=random.Random(1)),
+        config=config, log_path=tmp_path / "police_match.json", config_sha256="same-hash",
+    )
+    thief = Orchestrator(
+        role="thief", brain=HeuristicBrain(role="thief"),
+        mcp_client=OpponentClient(police_mcp, response_timeout_sec=5),
+        mailbox=thief_mailbox, llm_provider=TemplateProvider(rng=random.Random(2)),
+        config=config, log_path=tmp_path / "thief_match.json", config_sha256="same-hash",
+    )
+    police_outcome, thief_outcome = await asyncio.gather(police.run_game(), thief.run_game())
+
+    assert police_outcome in (GameOutcome.CAPTURE, GameOutcome.SURVIVAL)
+    assert thief_outcome in (GameOutcome.CAPTURE, GameOutcome.SURVIVAL)
+
+
+async def test_mismatched_config_hash_disqualifies_the_game_for_both_sides(tmp_path):
+    # Rule 11 (Mandatory): "Ensure the configuration file is completely
+    # identical, byte-for-byte, on both sides. Sanction: disqualification
+    # of the game for breaking symmetry." A silently divergent shared
+    # config must never be allowed to play out under two different
+    # physics -- both sides get TECHNICAL_LOSS, not just the "other" side.
+    import asyncio
+
+    police_mailbox, thief_mailbox = MoveMailbox(), MoveMailbox()
+    police_mcp = build_server("police", police_mailbox)
+    thief_mcp = build_server("thief", thief_mailbox)
+    config = make_small_config()
+
+    police = Orchestrator(
+        role="police", brain=HeuristicBrain(role="police"),
+        mcp_client=OpponentClient(thief_mcp, response_timeout_sec=5),
+        mailbox=police_mailbox, llm_provider=TemplateProvider(rng=random.Random(1)),
+        config=config, log_path=tmp_path / "police_match.json", config_sha256="hash-a",
+    )
+    thief = Orchestrator(
+        role="thief", brain=HeuristicBrain(role="thief"),
+        mcp_client=OpponentClient(police_mcp, response_timeout_sec=5),
+        mailbox=thief_mailbox, llm_provider=TemplateProvider(rng=random.Random(2)),
+        config=config, log_path=tmp_path / "thief_match.json", config_sha256="hash-b",
+    )
+    police_outcome, thief_outcome = await asyncio.gather(police.run_game(), thief.run_game())
+
+    assert police_outcome == GameOutcome.TECHNICAL_LOSS
+    assert thief_outcome == GameOutcome.TECHNICAL_LOSS
+    assert police.step == 0  # disqualified before any turn ever ran
+
+
 async def test_belief_map_converges_toward_the_true_opponent_after_a_turn(tmp_path):
     police, thief = make_matched_pair(tmp_path, max_moves=1)
 

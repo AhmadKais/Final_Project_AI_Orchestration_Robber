@@ -54,7 +54,7 @@ class Orchestrator:
         code_version: str = "0.1.0", github_commit: str = "unknown",
         group_name: str | None = None, llm_model: str = "unknown",
         repo_cop: str = "", repo_thief: str = "", members: tuple[str, ...] | list[str] = (),
-        games_played_so_far: int = 0,
+        games_played_so_far: int = 0, config_sha256: str = "",
         signing_key: bytes = b"local-dev-key-replace-in-production",
     ):
         self.role = role
@@ -76,6 +76,7 @@ class Orchestrator:
         self.repo_thief = repo_thief
         self.members = tuple(members)
         self.games_played_so_far = games_played_so_far
+        self.config_sha256 = config_sha256
         self.signing_key = signing_key
         self.own_step0 = None
         self.opponent_step0 = None
@@ -163,12 +164,13 @@ class Orchestrator:
         or absent opponent declaration is not a technical loss -- Appendix
         E rule 24's own sanction is "forfeiture of eligibility for the
         computational-fairness bonus," a softer consequence than the hash-
-        mismatch disqualification rule."""
+        mismatch disqualification rule (Rule 11) enforced below."""
         self.own_step0 = collect_step0_declaration(
             code_version=self.code_version, github_commit=self.github_commit,
             group_name=self.group_name, sub_game_number=1, llm_model=self.llm_model,
             repo_cop=self.repo_cop, repo_thief=self.repo_thief,
             members=self.members, games_played_so_far=self.games_played_so_far,
+            config_sha256=self.config_sha256,
         )
         own_signature = sign_declaration(self.own_step0, self.signing_key)
         self.deadline.start()
@@ -177,6 +179,20 @@ class Orchestrator:
         )
         opponent_step0 = await self._await_with_deadline(self.mailbox.step0s)
         self.opponent_step0 = opponent_step0["declaration"] if opponent_step0 else None
+
+        # Rule 11 (Mandatory): "ensure the configuration file is completely
+        # identical, byte-for-byte, on both sides. Sanction: disqualification
+        # of the game for breaking symmetry." A blank config_sha256 on either
+        # side (e.g. an older opponent build, or in-process tests that never
+        # set it) is treated as "nothing to compare" rather than a forced
+        # mismatch -- only a genuine, non-empty disagreement disqualifies.
+        if (
+            self.opponent_step0 is not None
+            and self.config_sha256
+            and self.opponent_step0.get("config_sha256")
+            and self.opponent_step0["config_sha256"] != self.config_sha256
+        ):
+            self._technical_loss()
 
     # -- one full turn ------------------------------------------------------
 
@@ -290,7 +306,11 @@ class Orchestrator:
             await self._exchange_step0()
             self.watchdog.heartbeat()
 
-            while not self.watchdog.triggered.is_set():
+            # A config-hash mismatch (Rule 11) already disqualified the game
+            # from _exchange_step0 -- skip straight to the log write below,
+            # never entering a turn loop under physics the two sides don't
+            # actually agree on.
+            while self.outcome is None and not self.watchdog.triggered.is_set():
                 if not await self.run_turn():
                     break
                 self.watchdog.heartbeat()
