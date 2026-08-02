@@ -129,10 +129,16 @@ Mandatory content for the README of **each** of the two submission repositories 
 
 N/A — no reinforcement learning was used (see above). A team adding a Q-Learning `BrainBase` subclass on top of this codebase would put its learning curves here.
 
-### 5. Screenshots — still needed
+### 5. Screenshots
 
-Belief-map heatmap (Live GUI) and `Verified OK` (Replay App) screenshots need a real display and `python3-tk`, neither present in the sandbox this was built in. `interface/live_gui.py`'s rendering logic is implemented and its pure color/banner computation is tested (`tests/test_live_gui.py`); only the actual widget screenshot is outstanding.
+**Belief-map heatmap (Live GUI):**
+
+![Belief map heatmap: 7x7 grid, deep red near the thief's actual position, green YOUR TURN banner](docs/screenshots/belief_map.png)
+
+Captured from a real, live `LiveGUI` Tkinter window (not a mockup) after a few real turns of an in-process police-vs-thief match: the heatmap is this side's actual `BeliefMap` after Bayesian updates from the opponent's real scent trail, and the green banner is the real turn-status state (Sec. 7.3). `tests/test_live_gui.py` covers the pure `heatmap_color`/`banner_state` logic that determines what gets drawn.
+
+`Verified OK` (Replay App) screenshot is still outstanding.
 
 ### 6. Companion repository link
 
-This is the **Cop** repository. Robber (identical codebase, separately hosted): **https://github.com/AhmadKais/Final_Project_AI_Orchestration_Robber**
+This is the **Robber** repository. Cop (identical codebase, separately hosted): **https://github.com/AhmadKais/Final_Project_AI_Orchestration**
