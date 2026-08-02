@@ -2,6 +2,9 @@
 credentials.json
 token.json
 
+# Local secrets (e.g. a GitHub PAT for pushing) -- NEVER commit
+.env
+
 # ngrok authtoken -- NEVER commit (same rationale as the Gmail secrets above)
 tools/ngrok.yml
 
