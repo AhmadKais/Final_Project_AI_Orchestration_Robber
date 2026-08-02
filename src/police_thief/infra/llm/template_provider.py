@@ -38,6 +38,7 @@ _HINT_TEMPLATES = [
 
 class TemplateProvider(LLMProvider):
     def __init__(self, *, landmarks: list[str] | None = None, rng: random.Random | None = None):
+        super().__init__()
         self.landmarks = landmarks or list(_GENERIC_LANDMARKS)
         self._rng = rng or random.Random()
 

@@ -11,6 +11,7 @@ from police_thief.infra.llm.base import SYSTEM_NOTE, LLMProvider, truncate_to_wo
 
 class OllamaProvider(LLMProvider):
     def __init__(self, *, base_url: str = "http://localhost:11434", model: str = "llama3", timeout_sec: float = 30):
+        super().__init__()
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_sec = timeout_sec
@@ -30,4 +31,9 @@ class OllamaProvider(LLMProvider):
                 f"Ollama at {self.base_url} is unreachable -- is it running "
                 f"(`ollama serve`) with model {self.model!r} pulled?"
             ) from exc
+        # Ollama's non-streaming response reports real local-model token
+        # counts (prompt_eval_count/eval_count) -- zero API cost (Appendix F
+        # Table 21), but still real tokens consumed by the model itself, so
+        # Rule 54's total should include them.
+        self._record_tokens(body.get("prompt_eval_count", 0) + body.get("eval_count", 0))
         return truncate_to_word_limit(body.get("response", "").strip(), word_limit)

@@ -10,6 +10,7 @@ from police_thief.infra.llm.base import SYSTEM_NOTE, LLMProvider, truncate_to_wo
 
 class ClaudeCLIProvider(LLMProvider):
     def __init__(self, *, timeout_sec: float = 30):
+        super().__init__()
         self.timeout_sec = timeout_sec
 
     def generate_hint(self, *, prompt: str, word_limit: int) -> str:
@@ -24,4 +25,8 @@ class ClaudeCLIProvider(LLMProvider):
                 "claude CLI is unavailable -- is it installed and are you "
                 "logged in (`claude auth login`)?"
             ) from exc
+        # Plain-text stdout (`claude -p ...`) carries no usage/token metadata
+        # -- unlike the other three providers, self.tokens_used has no way
+        # to advance past 0 here without switching to a structured output
+        # mode this provider doesn't use.
         return truncate_to_word_limit(result.stdout.strip(), word_limit)

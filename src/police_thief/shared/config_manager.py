@@ -21,10 +21,20 @@ Role = Literal["police", "thief"]
 
 @dataclass(frozen=True)
 class GameConfig:
-    """Merged, read-only view of shared + private config for one role."""
+    """Merged, read-only view of shared + private config for one role.
+
+    `shared` is kept alongside `values` (not just folded in and discarded)
+    because `derive_game_id` must hash only the shared, negotiated config
+    (Sec. 9.3: the four per-series artifacts carry one `game_uid` "so that
+    files from different games are never mixed up") -- hashing the merged
+    `values` instead would fold in each peer's own private per-role fields
+    (network.my_port, network.opponent_url, etc.), which necessarily
+    differ between Police and Robber, so the two sides would compute two
+    different game IDs for what is supposed to be the exact same match."""
 
     role: Role
     values: dict[str, Any]
+    shared: dict[str, Any]
 
     def __getitem__(self, key: str) -> Any:
         return self.values[key]
@@ -78,4 +88,4 @@ def load_game_config(role: Role, config_root: Path) -> GameConfig:
     """Convenience entry point: load + merge + return a GameConfig for `role`."""
     shared = load_shared_config(config_root / "game.json")
     private = load_private_config(config_root / role / "game.toml")
-    return GameConfig(role=role, values=merge(shared, private))
+    return GameConfig(role=role, values=merge(shared, private), shared=shared)

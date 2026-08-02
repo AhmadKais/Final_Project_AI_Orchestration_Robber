@@ -92,6 +92,7 @@ def build_peer(role: Role, config_root: Path = Path("config")) -> Orchestrator:
 
     game_cfg = values.get("game", {})
     llm_cfg = values.get("llm", {})
+    repos_cfg = game_cfg.get("repos", {})
 
     orchestrator = Orchestrator(
         role=role, brain=brain, mcp_client=mcp_client, mailbox=mailbox,
@@ -101,6 +102,9 @@ def build_peer(role: Role, config_root: Path = Path("config")) -> Orchestrator:
         github_commit=_current_git_commit(),
         group_name=game_cfg.get("group_name"),
         llm_model=llm_cfg.get("model", "unknown"),
+        repo_cop=repos_cfg.get("cop", ""), repo_thief=repos_cfg.get("thief", ""),
+        members=game_cfg.get("members", []),
+        games_played_so_far=game_cfg.get("games_played_so_far", 0),
     )
     # Stashed for run_peer, which alone needs to bind the server; nothing
     # else in Orchestrator's own API depends on these.
@@ -141,7 +145,9 @@ class SeriesRunner:
     # doesn't need that data, just with those two fields blank rather than
     # the file not existing at all.
     team_members: list[str] = field(default_factory=list)
-    repo_url: str = ""
+    repo_cop: str = ""
+    repo_thief: str = ""
+    games_played_so_far: int = 0
 
     async def run(self) -> dict:
         """Play every sub-game in sequence and write all four per-series
@@ -167,6 +173,8 @@ class SeriesRunner:
                 llm_provider=self.llm_provider, config=self.values, log_path=log_path,
                 code_version=self.code_version, github_commit=self.github_commit,
                 group_name=self.group_name, llm_model=self.llm_model,
+                repo_cop=self.repo_cop, repo_thief=self.repo_thief,
+                members=self.team_members, games_played_so_far=self.games_played_so_far,
             )
             outcome = await orchestrator.run_game()
             first_orchestrator = first_orchestrator or orchestrator
@@ -183,6 +191,9 @@ class SeriesRunner:
             "my_total": result.my_total, "opponent_total": result.opponent_total,
             "winner": result.winner,
             "sub_games": [asdict(record) for record in result.sub_games],
+            # Rule 54: total tokens consumed in the series (as opposed to
+            # each sub-game's own log, which reports just its own delta).
+            "total_llm_tokens_consumed": self.llm_provider.tokens_used,
         }
         (self.log_dir / f"result_{self.game_id}.json").write_text(json.dumps(payload, indent=2))
         return payload
@@ -192,16 +203,31 @@ class SeriesRunner:
         series -- both sides' identity, hardware, and MCP address, fixed
         with a signature. Hardware comes straight from sub-game 1's real
         Step-0 exchange (Sec. 5.5), not re-collected here; the exchange
-        already happened as part of run_game()."""
+        already happened as part of run_game().
+
+        The opponent's group_name/members/repos/games_played_so_far come
+        from that same real Step-0 exchange (Step0Declaration now carries
+        them, Rules 37 & 49) rather than being left blank for the opponent
+        to "fill in their own" -- each side's own declaration file already
+        has all four repo links (this team's Cop+Robber, the opponent's
+        Cop+Robber) the moment sub-game 1's Step-0 round-trip completes."""
         opponent_role = "thief" if self.config_natural_role == "police" else "police"
+        opponent_step0 = first_orchestrator.opponent_step0 or {}
         declaration = {
             "game_id": self.game_id,
             "num_games": self.values.get("network_and_league", {}).get("num_games", 1),
             "teams": {
                 self.config_natural_role: {
-                    "group_name": self.group_name, "members": self.team_members, "repo": self.repo_url,
+                    "group_name": self.group_name, "members": self.team_members,
+                    "repos": {"cop": self.repo_cop, "thief": self.repo_thief},
+                    "games_played_so_far": self.games_played_so_far,
                 },
-                opponent_role: {"group_name": None, "members": [], "repo": None},  # opponent fills in their own
+                opponent_role: {
+                    "group_name": opponent_step0.get("group_name"),
+                    "members": opponent_step0.get("members", []),
+                    "repos": {"cop": opponent_step0.get("repo_cop"), "thief": opponent_step0.get("repo_thief")},
+                    "games_played_so_far": opponent_step0.get("games_played_so_far"),
+                },
             },
             "hardware": {
                 self.config_natural_role: asdict(first_orchestrator.own_step0) if first_orchestrator.own_step0 else None,
@@ -259,18 +285,19 @@ def build_series(role: Role, config_root: Path = Path("config")) -> tuple[Series
     game_cfg = values.get("game", {})
     llm_cfg = values.get("llm", {})
     # config/<role>/game.toml's [game] section already scaffolds `members`
-    # and `repos = {cop, thief}` (this team's own two repo URLs -- a team
-    # submits both, Sec. 9.4). `repos` keys on the book's Cop/Robber
-    # vocabulary, not this codebase's police/thief Role literal, hence the
-    # lookup below rather than a plain `.get(role)`.
-    repo_key = "cop" if role == "police" else "thief"
+    # and `repos = {cop, thief}` -- this team's own two repo URLs (Rule 49:
+    # "four links in the JSON of both teams" = this team's Cop+Robber plus
+    # the opponent's, the latter arriving via the real Step-0 exchange).
+    repos_cfg = game_cfg.get("repos", {})
 
     runner = SeriesRunner(
         config_natural_role=role, values=values, mailbox=mailbox, mcp_client=mcp_client,
-        llm_provider=llm_provider, log_dir=Path("logs"), game_id=derive_game_id(values),
+        llm_provider=llm_provider, log_dir=Path("logs"), game_id=derive_game_id(game_config.shared),
         code_version=__version__, github_commit=_current_git_commit(),
         group_name=game_cfg.get("group_name"), llm_model=llm_cfg.get("model", "unknown"),
-        team_members=game_cfg.get("members", []), repo_url=game_cfg.get("repos", {}).get(repo_key, ""),
+        team_members=game_cfg.get("members", []),
+        repo_cop=repos_cfg.get("cop", ""), repo_thief=repos_cfg.get("thief", ""),
+        games_played_so_far=game_cfg.get("games_played_so_far", 0),
     )
     return runner, mcp_server, network_cfg["my_port"]
 
@@ -375,7 +402,7 @@ def run_report(role: Role, config_root: Path = Path("config"), game_id: str | No
         raise ValueError(f"config/{role}/game.toml is missing [email] recipient")
     mode = email_cfg.get("mode", "draft")
 
-    gid = game_id or derive_game_id(values)
+    gid = game_id or derive_game_id(game_config.shared)
     log_dir = Path("logs")
     artifacts = find_report_artifacts(log_dir, gid)
     if not artifacts:

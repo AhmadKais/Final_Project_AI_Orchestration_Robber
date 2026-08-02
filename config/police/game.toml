@@ -10,6 +10,10 @@ group_id   = "ali-ahm1"
 sub_game_number = 1
 members = ["Ali - Trabeh", "Ahmad - Kais"]
 repos = { cop = "https://github.com/AhmadKais/Final_Project_AI_Orchestration", thief = "https://github.com/AhmadKais/Final_Project_AI_Orchestration_Robber" }
+# Real, counted (different-opponent) games this team has played so far,
+# league-wide -- update by hand as real matches are played. Declared to the
+# opponent automatically at the start of every game via Step-0 (Rule 37).
+games_played_so_far = 0
 
 [network]
 my_port      = 8801                            # MY MCP server port

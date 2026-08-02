@@ -134,6 +134,62 @@ async def test_step0_declarations_are_recorded_in_the_log(tmp_path):
     assert log_data["step0"]["thief"] is not None
 
 
+async def test_log_reports_zero_llm_tokens_for_the_zero_token_template_provider(tmp_path):
+    police, thief = make_matched_pair(tmp_path)
+
+    import asyncio
+    import json
+
+    await asyncio.gather(police.run_game(), thief.run_game())
+
+    log_data = json.loads((tmp_path / "police_match.json").read_text())
+    assert log_data["llm_tokens_consumed_this_game"] == 0
+
+
+async def test_log_reports_this_games_own_token_delta_not_a_running_total(tmp_path):
+    # A series shares one LLMProvider instance across every sub-game
+    # (SeriesRunner); the per-sub-game log must report just THIS game's
+    # tokens, not everything the provider has ever consumed (Rule 54).
+    import asyncio
+
+    class StubTokenProvider(TemplateProvider):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.calls = 0
+
+        def generate_hint(self, *, prompt, word_limit):
+            self.calls += 1
+            self._record_tokens(7)
+            return super().generate_hint(prompt=prompt, word_limit=word_limit)
+
+    police_mailbox, thief_mailbox = MoveMailbox(), MoveMailbox()
+    police_mcp = build_server("police", police_mailbox)
+    thief_mcp = build_server("thief", thief_mailbox)
+    config = make_small_config(max_moves=20)
+    shared_provider = StubTokenProvider(rng=random.Random(1))
+    shared_provider._record_tokens(50)  # pretend an earlier sub-game already ran
+
+    police = Orchestrator(
+        role="police", brain=HeuristicBrain(role="police"),
+        mcp_client=OpponentClient(thief_mcp, response_timeout_sec=5),
+        mailbox=police_mailbox, llm_provider=shared_provider, config=config,
+        log_path=tmp_path / "police_match.json",
+    )
+    thief = Orchestrator(
+        role="thief", brain=HeuristicBrain(role="thief"),
+        mcp_client=OpponentClient(police_mcp, response_timeout_sec=5),
+        mailbox=thief_mailbox, llm_provider=TemplateProvider(rng=random.Random(2)),
+        config=config, log_path=tmp_path / "thief_match.json",
+    )
+    await asyncio.gather(police.run_game(), thief.run_game())
+
+    import json
+    log_data = json.loads((tmp_path / "police_match.json").read_text())
+    # Only tokens recorded AFTER this Orchestrator was constructed count --
+    # the pre-existing 50 from the "earlier sub-game" must not leak in.
+    assert log_data["llm_tokens_consumed_this_game"] == 7 * shared_provider.calls
+
+
 async def test_belief_map_converges_toward_the_true_opponent_after_a_turn(tmp_path):
     police, thief = make_matched_pair(tmp_path, max_moves=1)
 

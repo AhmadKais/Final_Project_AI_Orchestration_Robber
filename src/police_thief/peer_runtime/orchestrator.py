@@ -53,6 +53,8 @@ class Orchestrator:
         log_path: Path | None = None,
         code_version: str = "0.1.0", github_commit: str = "unknown",
         group_name: str | None = None, llm_model: str = "unknown",
+        repo_cop: str = "", repo_thief: str = "", members: tuple[str, ...] | list[str] = (),
+        games_played_so_far: int = 0,
         signing_key: bytes = b"local-dev-key-replace-in-production",
     ):
         self.role = role
@@ -70,9 +72,18 @@ class Orchestrator:
         self.github_commit = github_commit
         self.group_name = group_name or f"unnamed-{role}-team"
         self.llm_model = llm_model
+        self.repo_cop = repo_cop
+        self.repo_thief = repo_thief
+        self.members = tuple(members)
+        self.games_played_so_far = games_played_so_far
         self.signing_key = signing_key
         self.own_step0 = None
         self.opponent_step0 = None
+        # Snapshot at construction time (SeriesRunner builds a fresh
+        # Orchestrator per sub-game, sharing one LLMProvider instance across
+        # the whole series) so _write_log can report THIS sub-game's own
+        # token delta, not the series-cumulative running total.
+        self._tokens_at_game_start = llm_provider.tokens_used
 
         board_cfg = config["board_and_agents"]
         move_cfg = config["movement_and_barriers"]
@@ -156,6 +167,8 @@ class Orchestrator:
         self.own_step0 = collect_step0_declaration(
             code_version=self.code_version, github_commit=self.github_commit,
             group_name=self.group_name, sub_game_number=1, llm_model=self.llm_model,
+            repo_cop=self.repo_cop, repo_thief=self.repo_thief,
+            members=self.members, games_played_so_far=self.games_played_so_far,
         )
         own_signature = sign_declaration(self.own_step0, self.signing_key)
         self.deadline.start()
@@ -347,6 +360,10 @@ class Orchestrator:
                 self.role: asdict(self.own_step0) if self.own_step0 else None,
                 self.opponent_role: self.opponent_step0,
             },
+            # Rule 54: total LLM tokens consumed in THIS game -- a delta
+            # against the shared provider's running total, since a series
+            # reuses one LLMProvider instance across every sub-game.
+            "llm_tokens_consumed_this_game": self.llm_provider.tokens_used - self._tokens_at_game_start,
         }
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_path.write_text(json.dumps(payload, indent=2))

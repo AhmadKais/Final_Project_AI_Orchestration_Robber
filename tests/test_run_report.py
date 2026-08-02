@@ -65,9 +65,11 @@ def _write_config(config_root, role: str, mode: str = "draft"):
 
 
 def _derived_gid(config_root, role: str) -> str:
-    # game_id is derived from the MERGED values (shared JSON + private
-    # TOML), not the shared JSON alone -- must match run_report exactly.
-    return derive_game_id(load_game_config(role, config_root).values)
+    # game_id is derived from the SHARED config.json alone, not the merged
+    # per-role values -- both Police and Robber must compute the identical
+    # id for the same match (Sec. 9.3), which only holds if private,
+    # per-role-differing fields (network.my_port, etc.) are excluded.
+    return derive_game_id(load_game_config(role, config_root).shared)
 
 
 def test_run_report_draft_mode_never_calls_get_service(tmp_path, monkeypatch):

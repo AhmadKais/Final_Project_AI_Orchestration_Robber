@@ -8,6 +8,7 @@ from police_thief.infra.llm.base import SYSTEM_NOTE, LLMProvider, truncate_to_wo
 
 class ClaudeAPIProvider(LLMProvider):
     def __init__(self, *, model: str = "claude-haiku-4-5", api_key: str | None = None):
+        super().__init__()
         self.model = model
         self.api_key = api_key
 
@@ -25,5 +26,9 @@ class ClaudeAPIProvider(LLMProvider):
         except anthropic.AnthropicError as exc:
             raise RuntimeError(f"Claude API call failed for model {self.model!r}: {exc}") from exc
 
+        # Real, billed token consumption (Rule 54: must be reported in the
+        # end-of-game JSON, in the game and in the series) -- the only one
+        # of the four providers where this actually costs money.
+        self._record_tokens(response.usage.input_tokens + response.usage.output_tokens)
         text = "".join(block.text for block in response.content if block.type == "text").strip()
         return truncate_to_word_limit(text, word_limit)

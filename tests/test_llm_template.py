@@ -38,3 +38,4 @@ def test_generate_hint_costs_zero_tokens_no_network_dependency():
     provider = TemplateProvider(rng=random.Random(7))
     for _ in range(20):
         provider.generate_hint(prompt="anything", word_limit=15)
+    assert provider.tokens_used == 0

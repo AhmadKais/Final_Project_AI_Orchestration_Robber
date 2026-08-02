@@ -53,6 +53,25 @@ def test_ollama_provider_parses_response_and_truncates():
     mock_urlopen.assert_called_once()
 
 
+def test_ollama_provider_accumulates_real_token_counts():
+    # Zero API *cost* (Appendix F Table 21), but still real local-model
+    # tokens -- Rule 54 requires the total consumed, not just the billed
+    # subset, so prompt_eval_count/eval_count must be tracked.
+    provider = OllamaProvider()
+    fake_response = MagicMock()
+    fake_response.read.return_value = json.dumps(
+        {"response": "ok", "prompt_eval_count": 12, "eval_count": 8}
+    ).encode("utf-8")
+    fake_response.__enter__.return_value = fake_response
+    fake_response.__exit__.return_value = False
+
+    with patch("urllib.request.urlopen", return_value=fake_response):
+        provider.generate_hint(prompt="where are you", word_limit=15)
+        provider.generate_hint(prompt="anything else", word_limit=15)
+
+    assert provider.tokens_used == 40  # (12 + 8) * 2 calls
+
+
 def test_ollama_provider_sends_the_model_and_prompt():
     provider = OllamaProvider(model="mistral", base_url="http://localhost:11434")
     fake_response = MagicMock()
@@ -76,6 +95,8 @@ def test_claude_api_provider_calls_messages_create_and_truncates():
 
     text_block = MagicMock(type="text", text="one two three four five")
     fake_response = MagicMock(content=[text_block])
+    fake_response.usage.input_tokens = 30
+    fake_response.usage.output_tokens = 10
     fake_client = MagicMock()
     fake_client.messages.create.return_value = fake_response
 
@@ -86,6 +107,24 @@ def test_claude_api_provider_calls_messages_create_and_truncates():
     _, kwargs = fake_client.messages.create.call_args
     assert kwargs["model"] == "claude-haiku-4-5"
     assert kwargs["messages"] == [{"role": "user", "content": "closing in"}]
+
+
+def test_claude_api_provider_accumulates_real_billed_tokens():
+    # Rule 54: the total tokens actually consumed (and billed) must be
+    # reported in the end-of-game JSON, in the game and in the series.
+    provider = ClaudeAPIProvider(api_key="fake-key")
+    text_block = MagicMock(type="text", text="ok")
+    fake_response = MagicMock(content=[text_block])
+    fake_response.usage.input_tokens = 30
+    fake_response.usage.output_tokens = 10
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = fake_response
+
+    with patch("anthropic.Anthropic", return_value=fake_client):
+        provider.generate_hint(prompt="closing in", word_limit=15)
+        provider.generate_hint(prompt="still close", word_limit=15)
+
+    assert provider.tokens_used == 80  # (30 + 10) * 2 calls
 
 
 def test_claude_api_provider_wraps_api_errors():
@@ -114,6 +153,9 @@ def test_claude_cli_provider_shells_out_and_truncates():
     assert args[0][0] == "claude"
     assert args[0][1] == "-p"
     assert kwargs["timeout"] == provider.timeout_sec
+    # Documented limitation: plain-text stdout carries no usage metadata,
+    # so unlike the other three providers this one can never advance past 0.
+    assert provider.tokens_used == 0
 
 
 def test_claude_cli_provider_raises_when_cli_unavailable():

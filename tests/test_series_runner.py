@@ -77,6 +77,9 @@ async def test_series_plays_every_subgame_and_writes_results(tmp_path):
     # Every sub-game produced its own named log (Sec. 9.3 file-naming).
     for n in range(1, 5):
         assert (tmp_path / "a" / f"log_test-game_g{n:02d}.json").exists()
+    # Rule 54: the series-aggregate token total, even at 0 for the
+    # zero-token TemplateProvider used by every test in this file.
+    assert result_a["total_llm_tokens_consumed"] == 0
 
 
 async def test_series_alternates_roles_evenly(tmp_path):
@@ -165,7 +168,8 @@ async def test_series_declaration_includes_supplied_team_identity(tmp_path):
         log_dir=tmp_path / "a", game_id="test-game",
         code_version="0.0.0-test", github_commit="testcommit",
         group_name="group-a", llm_model="none",
-        team_members=["id-1001", "id-1002"], repo_url="https://github.com/example/police-repo",
+        team_members=["id-1001", "id-1002"],
+        repo_cop="https://github.com/example/police-repo", repo_thief="https://github.com/example/thief-repo",
     )
     runner_b = SeriesRunner(
         config_natural_role="thief", values=config, mailbox=mailbox_b,
@@ -174,9 +178,22 @@ async def test_series_declaration_includes_supplied_team_identity(tmp_path):
         log_dir=tmp_path / "b", game_id="test-game",
         code_version="0.0.0-test", github_commit="testcommit",
         group_name="group-b", llm_model="none",
+        team_members=["id-2001"],
+        repo_cop="https://github.com/other/police-repo", repo_thief="https://github.com/other/thief-repo",
     )
     await asyncio.gather(runner_a.run(), runner_b.run())
 
     declaration = json.loads((tmp_path / "a" / "declaration_test-game.json").read_text())
     assert declaration["teams"]["police"]["members"] == ["id-1001", "id-1002"]
-    assert declaration["teams"]["police"]["repo"] == "https://github.com/example/police-repo"
+    assert declaration["teams"]["police"]["repos"]["cop"] == "https://github.com/example/police-repo"
+    assert declaration["teams"]["police"]["repos"]["thief"] == "https://github.com/example/thief-repo"
+    # Rule 49 ("four links in the JSON of both teams"): the opponent's own
+    # two repo links must also be present, arrived via the real Step-0
+    # exchange -- not left as a blank placeholder for them to fill in.
+    assert declaration["teams"]["thief"]["group_name"] == "group-b"
+    assert declaration["teams"]["thief"]["members"] == ["id-2001"]
+    assert declaration["teams"]["thief"]["repos"]["cop"] == "https://github.com/other/police-repo"
+    assert declaration["teams"]["thief"]["repos"]["thief"] == "https://github.com/other/thief-repo"
+    # The opponent's own group_name/repos arrive for real via the Step-0
+    # exchange -- not left blank for the opponent to "fill in later".
+    assert declaration["teams"]["thief"]["group_name"] == "group-b"

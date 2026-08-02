@@ -84,6 +84,19 @@ def test_load_game_config_shared_overrides_conflicting_private_key(tmp_path):
     assert game_config["movement_and_barriers"]["max_moves"] == 35  # signed value wins
 
 
+def test_load_game_config_exposes_shared_config_separately_from_merged_values(tmp_path):
+    config_root = tmp_path / "config"
+    (config_root / "police").mkdir(parents=True)
+    (config_root / "game.json").write_text(json.dumps({"agreed_between": ["group-a", "group-b"]}))
+    (config_root / "police" / "game.toml").write_text('[network]\nmy_port = 8801\n')
+
+    game_config = load_game_config("police", config_root)
+
+    assert game_config.shared == {"agreed_between": ["group-a", "group-b"]}
+    assert "network" not in game_config.shared  # private-only field, must not leak in
+    assert game_config.values["network"]["my_port"] == 8801  # but still reachable via values
+
+
 # -- derive_game_id: both peers compute the identical id, zero extra round-trips --
 
 def test_derive_game_id_is_order_independent_in_agreed_between():
@@ -102,3 +115,33 @@ def test_derive_game_id_changes_with_different_team_pair():
     a = {"agreed_between": ["group-a", "group-b"], "x": 1}
     b = {"agreed_between": ["group-a", "group-c"], "x": 1}
     assert derive_game_id(a) != derive_game_id(b)
+
+
+def test_police_and_thief_derive_the_identical_game_id_despite_differing_private_config(tmp_path):
+    # The real bug this guards against: Police and Robber each load their
+    # OWN private game.toml (different my_port/opponent_url/llm.model/etc,
+    # by construction -- that's the whole point of a private config). If
+    # game_id were derived from the merged `values` instead of the shared
+    # game.json alone, the two sides would compute two different IDs for
+    # what Sec. 9.3 requires to be one shared identifier across all four
+    # per-series artifacts on both teams. Found by actually running two
+    # separate real peer processes and diffing their output filenames --
+    # in-process tests alone (same config object on both sides) could
+    # never have caught this.
+    config_root = tmp_path / "config"
+    (config_root / "police").mkdir(parents=True)
+    (config_root / "thief").mkdir(parents=True)
+    shared = {"agreed_between": ["group-a", "group-b"]}
+    (config_root / "game.json").write_text(json.dumps(shared))
+    (config_root / "police" / "game.toml").write_text(
+        '[network]\nmy_port = 8801\nopponent_url = "http://127.0.0.1:8802/mcp"\n[llm]\nmodel = "haiku"\n'
+    )
+    (config_root / "thief" / "game.toml").write_text(
+        '[network]\nmy_port = 8802\nopponent_url = "http://127.0.0.1:8801/mcp"\n[llm]\nmodel = "opus"\n'
+    )
+
+    police_config = load_game_config("police", config_root)
+    thief_config = load_game_config("thief", config_root)
+
+    assert police_config.values != thief_config.values  # genuinely different private config
+    assert derive_game_id(police_config.shared) == derive_game_id(thief_config.shared)

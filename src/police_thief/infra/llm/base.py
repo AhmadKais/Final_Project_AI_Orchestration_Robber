@@ -20,6 +20,18 @@ def truncate_to_word_limit(text: str, word_limit: int) -> str:
 
 
 class LLMProvider(ABC):
+    def __init__(self) -> None:
+        # Running total of real LLM tokens consumed by this provider
+        # instance across every call so far (Rule 54: the end-of-game JSON
+        # must report total tokens consumed, in the game and in the
+        # series) -- a provider that has no real per-call token cost
+        # (TemplateProvider, and ClaudeCLIProvider's plain-text stdout,
+        # which exposes no usage figures) simply never advances this past 0.
+        self.tokens_used: int = 0
+
+    def _record_tokens(self, count: int) -> None:
+        self.tokens_used += count
+
     @abstractmethod
     def generate_hint(self, *, prompt: str, word_limit: int) -> str:
         """Produce a verbal hint (true or a calculated bluff), capped at

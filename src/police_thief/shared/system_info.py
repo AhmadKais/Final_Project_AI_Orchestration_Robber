@@ -1,8 +1,9 @@
 """Step-0 hardware/software declaration for computational fairness (Sec. 5.5).
 
 Collects OS, CPU core count/frequency, RAM, GPU/VRAM presence, the LLM in
-use, code version, and the GitHub commit hash actually played -- packed into
-a JSON string and signed before the first move.
+use, code version, and the GitHub commit hash actually played, plus this
+team's repo links, roster, and running league game count (Rules 37 & 49) --
+packed into a JSON string and signed before the first move.
 """
 
 from __future__ import annotations
@@ -30,6 +31,15 @@ class Step0Declaration:
     github_commit: str
     group_name: str
     sub_game_number: int
+    # Exchanged here (not just held locally) so the opponent's real values
+    # land in the [Declaration File] via the same Step-0 round-trip that
+    # already carries group_name and hardware -- Rule 49 ("four links in
+    # the JSON of both teams") and Rule 37 ("declare precisely the number
+    # of games actually played at the start of every game").
+    repo_cop: str = ""
+    repo_thief: str = ""
+    members: tuple[str, ...] = ()
+    games_played_so_far: int = 0
 
 
 def _cpu_freq_mhz() -> float:
@@ -74,7 +84,9 @@ def _gpu_info() -> tuple[str | None, float | None]:
 
 def collect_step0_declaration(*, code_version: str, github_commit: str,
                                group_name: str, sub_game_number: int,
-                               llm_model: str) -> Step0Declaration:
+                               llm_model: str, repo_cop: str = "", repo_thief: str = "",
+                               members: tuple[str, ...] | list[str] = (),
+                               games_played_so_far: int = 0) -> Step0Declaration:
     """Gather live hardware/software facts for this machine."""
     gpu, vram_gb = _gpu_info()
     return Step0Declaration(
@@ -89,6 +101,10 @@ def collect_step0_declaration(*, code_version: str, github_commit: str,
         github_commit=github_commit,
         group_name=group_name,
         sub_game_number=sub_game_number,
+        repo_cop=repo_cop,
+        repo_thief=repo_thief,
+        members=tuple(members),
+        games_played_so_far=games_played_so_far,
     )
 
 
